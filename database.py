@@ -238,15 +238,6 @@ class DatabaseManager:
             return False
 
     # ---- Dynamic File Ingestion Logic Controllers ----
-
-    # ---- Dynamic File Ingestion Logic Controllers ----
-
-
-
-
-# --------------------------------------------------------------------------- 
-# Clean Isolated System Initialization
-# --------------------------------------------------------------------------- 
     # ---- Dynamic File Ingestion Logic Controllers ----
 
     def seed_from_csv(self, csv_filepath: Path) -> None:
@@ -282,5 +273,7 @@ if __name__ == "__main__":
     db = DatabaseManager()
     db.initialize()
     print("Database built successfully inside 'supermart_ops.db'.")
+
+
 
 
