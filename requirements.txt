@@ -5,3 +5,5 @@ langgraph
 chromadb
 pypdf
 python-dotenv
+langchain-anthropic
+
