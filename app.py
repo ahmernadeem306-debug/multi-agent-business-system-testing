@@ -20,17 +20,18 @@ POLICIES_DIR = BASE_DIR / "policies"
 POLICIES_DIR.mkdir(exist_ok=True)
 
 # --------------------------------------------------------------------------- 
-# Live Dashboard Statistics Tracker
+# Live Dashboard Statistics Tracker (Cleaned - Removed Try/Except Dependency)
 # --------------------------------------------------------------------------- 
 def fetch_live_dashboard_stats():
     db = DatabaseManager()
     db.initialize()
-    try:
-        with db.get_cursor() as cur:
-            cur.execute("SELECT COUNT(*) as total FROM products;")
-            total_p = cur.fetchone()["total"]
-            
-            cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level 🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
+    
+    with db.get_cursor() as cur:
+        cur.execute("SELECT COUNT(*) as total FROM products;")
+        row_total = cur.fetchone()
+        total_p = row_total["total"] if row_total else 0
+        
+        cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level 🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280;'>Secure Manager Identity Terminal Gateway</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
