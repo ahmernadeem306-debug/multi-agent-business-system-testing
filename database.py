@@ -239,19 +239,48 @@ class DatabaseManager:
 
     # ---- Dynamic File Ingestion Logic Controllers ----
 
-def seed_from_csv(self, csv_filepath: Path) -> None:
-   """Reads operational stock rows completely dynamically from a custom runtime file configuration."""
-   if not csv_filepath.exists():
-      logger.warning("Ingestion Failed: Target CSV resource '%s' does not exist.", csv_filepath.name)
-      return
-      with open(csv_filepath, mode='r', encoding='utf-8') as f:
-      reader = csv.DictReader(f)with self.get_cursor() as cur:
-         for row in reader:
-            cur.execute("""INSERT OR REPLACE INTO products (sku, barcode, name, category, stock_level,minimum_required_stock, wholesale_price, retail_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?);""", (row['sku'], row['barcode'], row['name'], row['category'],int(row['stock_level']), int(row['minimum_required_stock']),float(row['wholesale_price']), float(row['retail_price'])))
-            cur.execute("SELECT COUNT(*) FROM products;")
-            logger.info("CSV Pipeline complete. Live verifiable row registry count: %d", cur.fetchone()[0])
-            if name == "main":
-               print("Initializing Clean Database Layers...")
-               db = DatabaseManager()
-               db.initialize()
-               print("Database built successfully inside 'supermart_ops.db'.")
+    # ---- Dynamic File Ingestion Logic Controllers ----
+
+
+
+
+# --------------------------------------------------------------------------- 
+# Clean Isolated System Initialization
+# --------------------------------------------------------------------------- 
+    # ---- Dynamic File Ingestion Logic Controllers ----
+
+    def seed_from_csv(self, csv_filepath: Path) -> None:
+        """Reads operational stock rows completely dynamically from a custom runtime file configuration."""
+        if not csv_filepath.exists():
+            logger.warning("Ingestion Failed: Target CSV resource '%s' does not exist.", csv_filepath.name)
+            return
+
+        with open(csv_filepath, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            with self.get_cursor() as cur:
+                for row in reader:
+                    cur.execute("""
+                        INSERT OR REPLACE INTO products (
+                            sku, barcode, name, category, stock_level, 
+                            minimum_required_stock, wholesale_price, retail_price
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """, (
+                        row['sku'], row['barcode'], row['name'], row['category'],
+                        int(row['stock_level']), int(row['minimum_required_stock']),
+                        float(row['wholesale_price']), float(row['retail_price'])
+                    ))
+                cur.execute("SELECT COUNT(*) FROM products;")
+                # Note: Yahan cur.fetchone()[0] lagaya hai taake tuple error na aaye
+                logger.info("CSV Pipeline complete. Live verifiable row registry count: %d", cur.fetchone()[0])
+
+
+# --------------------------------------------------------------------------- 
+# Clean Isolated System Initialization
+# --------------------------------------------------------------------------- 
+if __name__ == "__main__":
+    print("Initializing Clean Database Layers...")
+    db = DatabaseManager()
+    db.initialize()
+    print("Database built successfully inside 'supermart_ops.db'.")
+
+
