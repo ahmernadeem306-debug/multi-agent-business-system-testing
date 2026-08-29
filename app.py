@@ -33,7 +33,7 @@ def fetch_live_dashboard_stats():
             cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level 🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280;'>Secure Manager Identity Terminal Gateway</p>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1,2,1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         # Secure UI Switching Tabs
         login_tab, signup_tab = st.tabs(["🔑 Login Area", "📝 Create Manager Account"])
