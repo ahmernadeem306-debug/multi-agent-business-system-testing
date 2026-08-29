@@ -1,16 +1,3 @@
----
-
-### 📁 FILE 2: `app.py` (Isay copy karke doosri file mein save karein)
-
-```python
-"""
-app.py
-======
-Enterprise-grade Streamlit application dashboard for BizAgent.
-Features a live backend Sign-Up & Log-In portal connected to database.py,
-with dynamic CSV and PDF runtime file ingestion.
-"""
-
 import streamlit as st
 import os
 from pathlib import Path
@@ -46,7 +33,7 @@ def fetch_live_dashboard_stats():
             cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level 🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280;'>Secure Manager Identity Terminal Gateway</p>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1,2,1])
     with col2:
         # Secure UI Switching Tabs
         login_tab, signup_tab = st.tabs(["🔑 Login Area", "📝 Create Manager Account"])
@@ -159,4 +146,5 @@ else:
                     st.session_state["chat_history"].append(AIMessage(content=final_reply))
                 except Exception as error:
                     st.error(f"System Workflow Exception: {str(error)}")
+
 
