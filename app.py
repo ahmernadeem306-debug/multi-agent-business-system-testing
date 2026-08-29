@@ -1,399 +1,185 @@
 """
 app.py
 ======
-BizAgent - Supermart Operations Console (Streamlit UI)
-
-ZERO IN-LINE MOCKING POLICY
-----------------------------
-- No hardcoded mock lists/dicts/sample transactions live in this file.
-- All data comes from `DatabaseManager` (database.py) querying the real
-  `supermart_ops.db` SQLite file, via parameterized queries only.
-- All credentials and business rules (escalation thresholds, assistant
-  intent -> query mappings) are read from external flat files (.env and
-  sop_policy.txt) through config.py -- never embedded in this module.
-
-Run with:
-    streamlit run app.py
+Enterprise-grade Streamlit application dashboard for BizAgent.
+Features runtime file uploaders for CSV inventory data and Policy PDFs,
+bypassing any hardcoded local asset dependencies.
 """
 
-from __future__ import annotations
-
-import sqlite3
-from datetime import datetime
-from typing import Optional
-
-import pandas as pd
 import streamlit as st
+import os
+import shutil
+from pathlib import Path
+from langchain_core.messages import HumanMessage, AIMessage
 
-from config import AppConfig, Credential, SOPPolicy, load_app_config, load_sop_policy
+# Direct imports from your existing modular files
 from database import DatabaseManager
+from rag_engine import query_knowledge_base
+from agents import graph_pipeline
+
+# Configure Page Branding layout metrics
+st.set_page_config(
+    page_title="BizAgent AI - Operations Control Center",
+    page_icon="🏪",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # --------------------------------------------------------------------------- 
-# Page setup
+# Configuration & Local Directories Setup
 # --------------------------------------------------------------------------- 
-
-st.set_page_config(page_title="BizAgent Operations Console", page_icon="🛒", layout="wide")
-
-
-# --------------------------------------------------------------------------- 
-# Cached, process-wide singletons: config, policy, and the DB connection pool
-# --------------------------------------------------------------------------- 
-
-@st.cache_resource
-def get_config() -> AppConfig:
-    return load_app_config()
-
-
-@st.cache_resource
-def get_policy(_config: AppConfig) -> SOPPolicy:
-    return load_sop_policy(_config.sop_policy_file)
-
-
-@st.cache_resource
-def get_db(_config: AppConfig) -> DatabaseManager:
-    """
-    One pooled DatabaseManager for the lifetime of the Streamlit process.
-    `_config` is prefixed with an underscore so Streamlit's cache_resource
-    does not try (and fail) to hash it.
-    """
-    manager = DatabaseManager(db_path=_config.db_path)
-    manager.initialize()
-    # Only seed if the operator hasn't populated the DB yet -- never
-    # re-seed over live operational data.
-    if manager.row_counts()["products"] == 0:
-        manager.seed_database()
-    return manager
-
-
-def rows_to_df(rows: list) -> pd.DataFrame:
-    """Convert a list of sqlite3.Row objects into a DataFrame."""
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame([dict(r) for r in rows])
-
+BASE_DIR = Path(__file__).resolve().parent
+POLICIES_DIR = BASE_DIR / "policies"
+POLICIES_DIR.mkdir(exist_ok=True)  # Create runtime folder if not present
 
 # --------------------------------------------------------------------------- 
-# Authentication (credentials sourced from .env via config.py)
+# Real-Time Dynamic Metrics Processing
 # --------------------------------------------------------------------------- 
-
-def render_login(config: AppConfig) -> None:
-    st.title("🛒 " + config.app_title)
-    st.caption("Sign in with your operational credentials to continue.")
-
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in")
-
-    if submitted:
-        credential: Optional[Credential] = config.authenticate(username, password)
-        if credential:
-            st.session_state["auth"] = {"username": credential.username, "role": credential.role}
-            st.rerun()
-        else:
-            st.error("Invalid username or password.")
-
-
-def require_login(config: AppConfig) -> Optional[dict]:
-    if "auth" not in st.session_state:
-        render_login(config)
-        return None
-    return st.session_state["auth"]
-
+def fetch_live_dashboard_stats():
+    """Queries your actual database file to track active inventory anomalies."""
+    db = DatabaseManager()
+    db.initialize()
+    
+    with db.get_cursor() as cur:
+        # Fetching Total Number of Registered Products
+        cur.execute("SELECT COUNT(*) as total FROM products;")
+        total_p = cur.fetchone()["total"]
+        
+        # Fetching Count of Low-Stock Operational Triggers
+        cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level < minimum_required_stock;")
+        low_p = cur.fetchone()["low_count"]
+        
+        # Fetching Total Sales Volume Recorded in System
+        cur.execute("SELECT IFNULL(SUM(quantity), 0) as total_sales FROM sales_transactions;")
+        sales_v = cur.fetchone()["total_sales"]
+        
+    return total_p, low_p, sales_v
 
 # --------------------------------------------------------------------------- 
-# Tab: Overview
+# Secure Local Authentication Logic Barrier
 # --------------------------------------------------------------------------- 
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
 
-def render_overview(db: DatabaseManager, config: AppConfig, policy: SOPPolicy) -> None:
-    st.subheader("Live Operational Snapshot")
-
-    inv = db.get_inventory_summary()
-    sales = db.get_sales_summary(days=config.sales_lookback_days)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Active SKUs", int(inv["total_skus"]))
-    col2.metric("Units on Hand", int(inv["total_units"]))
-    col3.metric("Inventory Value", f"${inv['inventory_value']:,.2f}")
-    col4.metric("Low-Stock SKUs", int(inv["low_stock_count"]))
-
-    col5, col6, col7 = st.columns(3)
-    col5.metric(f"Receipts (last {config.sales_lookback_days}d)", int(sales["receipt_count"]))
-    col6.metric(f"Units Sold (last {config.sales_lookback_days}d)", int(sales["units_sold"]))
-    col7.metric(f"Revenue (last {config.sales_lookback_days}d)", f"${sales['revenue']:,.2f}")
-
-    st.divider()
-    st.subheader(f"Top Sellers - Last {config.top_products_lookback_days} Days")
-    top_df = rows_to_df(
-        db.get_top_selling_products(
-            days=config.top_products_lookback_days, limit=config.top_products_limit
-        )
-    )
-    if top_df.empty:
-        st.info("No sales recorded in this window yet.")
-    else:
-        chart_df = top_df.set_index("name")[["units_sold"]]
-        st.bar_chart(chart_df)
-        st.dataframe(top_df, use_container_width=True, hide_index=True)
-
+def render_login_portal():
+    """Builds an isolated login screen wrapper."""
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6B7280;'>Enterprise Dashboard Gateway Security Terminal</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns()
+    with col2:
+        with st.form("security_handshake"):
+            st.subheader("Administrative Log-In")
+            username = st.text_input("Operator Username")
+            password = st.text_input("Secure Access Key", type="password")
+            submit = st.form_submit_button("Verify Identity")
+            
+            if submit:
+                if username == "admin" and password == "supermart2026":
+                    st.session_state["authenticated"] = True
+                    st.success("Identity Verified successfully. Initializing system panels...")
+                    st.rerun()
+                else:
+                    st.error("Access Denied: Invalid operator credentials.")
 
 # --------------------------------------------------------------------------- 
-# Tab: Inventory
+# Main Enterprise Dashboard Rendering
 # --------------------------------------------------------------------------- 
-
-def render_inventory(db: DatabaseManager) -> None:
-    st.subheader("Product Inventory")
-
-    categories = ["All categories"] + db.get_categories()
-    col_a, col_b = st.columns([1, 2])
-    with col_a:
-        category = st.selectbox("Filter by category", categories)
-    with col_b:
-        search_term = st.text_input("Search by name or SKU", placeholder="e.g. rice, SKU-1001")
-
-    if search_term:
-        products = db.search_products(search_term)
-    elif category != "All categories":
-        products = db.get_all_products(category=category)
-    else:
-        products = db.get_all_products()
-
-    df = rows_to_df(products)
-    if df.empty:
-        st.warning("No matching products found.")
-    else:
-        display_cols = [
-            "sku", "barcode", "name", "category", "stock_level",
-            "minimum_required_stock", "wholesale_price", "retail_price", "updated_at",
-        ]
-        st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
-
-    st.divider()
-    st.subheader("⚠️ At or Below Minimum Stock")
-    low_df = rows_to_df(db.get_low_stock_products())
-    if low_df.empty:
-        st.success("No products are currently below their minimum stock threshold.")
-    else:
-        st.dataframe(low_df, use_container_width=True, hide_index=True)
-
-
-# --------------------------------------------------------------------------- 
-# Tab: Sales
-# --------------------------------------------------------------------------- 
-
-def render_sales(db: DatabaseManager, config: AppConfig) -> None:
-    st.subheader("Recent Transactions")
-    recent_df = rows_to_df(db.get_recent_transactions(limit=config.recent_transactions_limit))
-    if recent_df.empty:
-        st.info("No sales transactions recorded yet.")
-    else:
-        st.dataframe(recent_df, use_container_width=True, hide_index=True)
-
-    st.divider()
-    st.subheader("Record a New Sale")
-    st.caption("This writes directly to sales_transactions and decrements live stock.")
-    products = db.get_all_products()
-    if not products:
-        st.warning("No products available to sell.")
-        return
-
-    sku_options = {f"{p['sku']} - {p['name']} (on hand: {p['stock_level']})": p["sku"] for p in products}
-    with st.form("record_sale_form"):
-        selected_label = st.selectbox("Product", list(sku_options.keys()))
-        quantity = st.number_input("Quantity", min_value=1, step=1, value=1)
-        submitted = st.form_submit_button("Record Sale")
-
-    if submitted:
-        sku = sku_options[selected_label]
-        receipt_id = f"RCT-{int(datetime.now().timestamp())}"
+if not st.session_state["authenticated"]:
+    render_login_portal()
+else:
+    # --- Sidebar Live Diagnostics & Data Ingestion System Panel ---
+    st.sidebar.markdown("<h2 style='color: #1E3A8A;'>🛡️ BizAgent Control</h2>", unsafe_allow_html=True)
+    st.sidebar.info("Operational Status: Active Gateway Connected.")
+    
+    # --- RUNTIME DATA UPLOAD SECTION ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📥 Data & Policy Ingestion")
+    
+    # 1. Product Inventory CSV Uploader
+    uploaded_csv = st.sidebar.file_uploader("Upload Store Inventory CSV", type=["csv"])
+    if uploaded_csv is not None:
+        temp_csv_path = BASE_DIR / "temp_uploaded_products.csv"
+        # Save file locally for database seeding processing
+        with open(temp_csv_path, "wb") as f:
+            f.write(uploaded_csv.getbuffer())
+        
         try:
-            db.record_sale(receipt_id=receipt_id, sku=sku, quantity=int(quantity))
-            st.success(f"Sale recorded under receipt {receipt_id}.")
-            st.rerun()
-        except (ValueError, sqlite3.Error) as exc:
-            st.error(f"Could not record sale: {exc}")
+            db = DatabaseManager()
+            db.initialize()
+            db.seed_from_csv(temp_csv_path)
+            st.sidebar.success("✅ Products Database Seeded/Updated!")
+            os.remove(temp_csv_path)  # Clean up temp file
+        except Exception as e:
+            st.sidebar.error(f"Database Ingestion Error: {str(e)}")
 
+    # 2. Company Compliance PDF Uploader
+    uploaded_pdf = st.sidebar.file_uploader("Upload Policy PDF Manual", type=["pdf"])
+    if uploaded_pdf is not None:
+        save_pdf_path = POLICIES_DIR / uploaded_pdf.name
+        with open(save_pdf_path, "wb") as f:
+            f.write(uploaded_pdf.getbuffer())
+            
+        st.sidebar.success(f"✅ Saved: {uploaded_pdf.name}")
+        st.sidebar.info("Run indexing via background console tool if required.")
+        # Note: Your background agent triggers rag_engine logic directly over the policies directory.
 
-# --------------------------------------------------------------------------- 
-# Tab: Vendors & Reorder
-# --------------------------------------------------------------------------- 
-
-def render_vendors(db: DatabaseManager, policy: SOPPolicy, role: str) -> None:
-    st.subheader("Reorder Recommendations")
-    reorder_df = rows_to_df(db.get_reorder_recommendations())
-    if reorder_df.empty:
-        st.success("No open reorder recommendations right now.")
-    else:
-        reorder_df["priority"] = reorder_df["lead_time_days"].apply(
-            lambda days: "HIGH PRIORITY"
-            if pd.notna(days) and days > policy.escalation_lead_time_days
-            else "Standard"
-        )
-        if role != "Operations Manager":
-            # SOP access policy: associates see that a reorder is needed,
-            # not which vendor / contract terms apply.
-            st.dataframe(
-                reorder_df[["sku", "name", "category", "stock_level", "minimum_required_stock", "priority"]],
-                use_container_width=True, hide_index=True,
-            )
-            st.caption("Vendor and lead-time detail is restricted to the Operations Manager role.")
-        else:
-            st.dataframe(reorder_df, use_container_width=True, hide_index=True)
-
-    st.divider()
-    if role == "Operations Manager":
-        st.subheader("Vendor Contracts")
-        vendor_df = rows_to_df(db.get_vendor_contracts())
-        st.dataframe(vendor_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("Sign in as an Operations Manager to view vendor contract terms.")
-
-
-# --------------------------------------------------------------------------- 
-# Tab: Assistant (intent -> live query, driven entirely by sop_policy.txt)
-# --------------------------------------------------------------------------- 
-
-def _dispatch_intent(db: DatabaseManager, config: AppConfig, method: str):
-    """Map a policy-declared method name to a live, parameterized DB call."""
-    dispatch_table = {
-        "get_reorder_recommendations": lambda: db.get_reorder_recommendations(),
-        "get_inventory_summary": lambda: db.get_inventory_summary(),
-        "get_sales_summary": lambda: db.get_sales_summary(days=config.sales_lookback_days),
-        "get_top_selling_products": lambda: db.get_top_selling_products(
-            days=config.top_products_lookback_days, limit=config.top_products_limit
-        ),
-        "get_vendor_contracts": lambda: db.get_vendor_contracts(),
-        "get_recent_transactions": lambda: db.get_recent_transactions(
-            limit=config.recent_transactions_limit
-        ),
-    }
-    if method not in dispatch_table:
-        raise KeyError(f"sop_policy.txt references unknown method '{method}'")
-    return dispatch_table[method]()
-
-
-def _summarize_result(intent_name: str, result) -> str:
-    """Build a plain-language summary from the *actual* query result."""
-    if isinstance(result, sqlite3.Row):
-        row = dict(result)
-        if intent_name == "inventory":
-            return (
-                f"You have **{row['total_skus']} SKUs** on hand totaling "
-                f"**{row['total_units']} units** (${row['inventory_value']:,.2f} at retail). "
-                f"**{row['low_stock_count']}** are at or below their minimum stock level."
-            )
-        if intent_name == "sales":
-            return (
-                f"In the reporting window there were **{row['receipt_count']} receipts**, "
-                f"**{row['units_sold']} units sold**, for **${row['revenue']:,.2f}** in revenue."
-            )
-        return str(row)
-
-    rows = list(result) if result else []
-    if not rows:
-        return "No matching records were found for that query."
-
-    if intent_name == "reorder":
-        return f"**{len(rows)} product(s)** are at or below their minimum stock threshold."
-    if intent_name == "top_sellers":
-        names = ", ".join(dict(r)["name"] for r in rows[:3])
-        return f"Top performers right now: **{names}**."
-    if intent_name == "vendors":
-        return f"There are **{len(rows)} active vendor contract(s)** on file."
-    if intent_name == "recent_sales":
-        return f"Here are the **{len(rows)} most recent** sale line-items."
-    return f"Found **{len(rows)}** matching record(s)."
-
-
-def render_assistant(db: DatabaseManager, config: AppConfig, policy: SOPPolicy) -> None:
-    st.subheader("Operations Assistant")
-    st.caption(
-        "Ask about stock, sales, vendors, or reorders. Every response below is generated "
-        "live from supermart_ops.db -- the assistant only knows what the query returns."
-    )
-
-    if "chat_history" not in st.session_state:
+    # Executing dynamic calculations directly from database logic
+    total_sku, critical_low, total_sales = fetch_live_dashboard_stats()
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📉 Live Supermart Analytics")
+    st.sidebar.metric(label="Total Tracked Products (SKUs)", value=total_sku)
+    st.sidebar.metric(label="Critical Low Stock Alerts", value=critical_low, delta=f"{critical_low} items short" if critical_low > 0 else "0 anomalies")
+    st.sidebar.metric(label="Historical Sales Items Handled", value=total_sales)
+    
+    # Safe Sign-Out Command Protocol
+    st.sidebar.markdown("---")
+    if st.sidebar.button("Logout System Gateway"):
+        st.session_state["authenticated"] = False
         st.session_state["chat_history"] = []
+        st.rerun()
 
-    for turn in st.session_state["chat_history"]:
+    # --- Main System Command Pane Panel ---
+    st.markdown("<h1>📊 Operational Agent Console</h1>", unsafe_allow_html=True)
+    st.caption("Central multi-agent supervisor running dynamic runtime SQLite and uploaded PDF analytics workflows.")
+    
+    # Display Persistent Chat History State Blocks
+    for message in st.session_state["chat_history"]:
+        if isinstance(message, HumanMessage):
+            with st.chat_message("user"):
+                st.write(message.content)
+        elif isinstance(message, AIMessage):
+            with st.chat_message("assistant"):
+                st.write(message.content)
+
+    # Monitor user runtime inputs
+    if user_query := st.chat_input("Ask about stock levels, products list, or compliance policy checks..."):
+        
+        # Instantly append user input interface container block
         with st.chat_message("user"):
-            st.write(turn["question"])
+            st.write(user_query)
+        st.session_state["chat_history"].append(HumanMessage(content=user_query))
+        
+        # Process context streaming directly inside the multi-agent graph layout
         with st.chat_message("assistant"):
-            st.markdown(turn["answer"])
-            if turn.get("table") is not None and not turn["table"].empty:
-                st.dataframe(turn["table"], use_container_width=True, hide_index=True)
+            with st.spinner("Supervisor Agent routing workflow context to sub-modules..."):
+                try:
+                    # Packaging conversational block context matching state parameters
+                    inputs = {"messages": st.session_state["chat_history"]}
+                    
+                    # Run the active production-grade LangGraph compiled pipeline file
+                    result = graph_pipeline.invoke(inputs)
+                    
+                    # Extract the absolute final synthetic response string layer
+                    final_agent_reply = result["messages"][-1].content
+                    
+                    # Display the execution result bubble instantly
+                    st.write(final_agent_reply)
+                    st.session_state["chat_history"].append(AIMessage(content=final_agent_reply))
+                    
+                except Exception as error:
+                    st.error(f"System Workflow Exception Interception: {str(error)}")
 
-    question = st.chat_input("e.g. 'what needs to be reordered?' or 'top sellers this month'")
-    if question:
-        intent = policy.match_intent(question)
-        if intent is None:
-            available = ", ".join(sorted({i.name.replace("_", " ") for i in policy.intents}))
-            answer = (
-                "I couldn't match that to a known operation. Try asking about: " + available + "."
-            )
-            table = pd.DataFrame()
-        else:
-            result = _dispatch_intent(db, config, intent.method)
-            answer = _summarize_result(intent.name, result)
-            table = (
-                rows_to_df([result]) if isinstance(result, sqlite3.Row) else rows_to_df(list(result))
-            )
-        st.session_state["chat_history"].append({"question": question, "answer": answer, "table": table})
-        st.rerun()
-
-
-# --------------------------------------------------------------------------- 
-# SOP policy viewer (sidebar)
-# --------------------------------------------------------------------------- 
-
-def render_policy_sidebar(policy: SOPPolicy, auth: dict, config: AppConfig) -> None:
-    st.sidebar.title("BizAgent")
-    st.sidebar.write(f"Signed in as **{auth['username']}**")
-    st.sidebar.write(f"Role: **{auth['role']}**")
-    if st.sidebar.button("Sign out"):
-        st.session_state.pop("auth", None)
-        st.session_state.pop("chat_history", None)
-        st.rerun()
-
-    st.sidebar.divider()
-    st.sidebar.caption(f"Escalation threshold: > {policy.escalation_lead_time_days} lead-time days")
-    st.sidebar.caption(f"Slow-moving window: {policy.slow_moving_window_days} days")
-    with st.sidebar.expander("SOP Policy (sop_policy.txt)"):
-        st.write(policy.narrative)
-
-
-# --------------------------------------------------------------------------- 
-# Main
-# --------------------------------------------------------------------------- 
-
-def main() -> None:
-    config = get_config()
-    policy = get_policy(config)
-    db = get_db(config)
-
-    auth = require_login(config)
-    if auth is None:
-        return
-
-    render_policy_sidebar(policy, auth, config)
-
-    st.title("🛒 " + config.app_title)
-
-    tab_overview, tab_inventory, tab_sales, tab_vendors, tab_assistant = st.tabs(
-        ["Overview", "Inventory", "Sales", "Vendors & Reorder", "Assistant"]
-    )
-
-    with tab_overview:
-        render_overview(db, config, policy)
-    with tab_inventory:
-        render_inventory(db)
-    with tab_sales:
-        render_sales(db, config)
-    with tab_vendors:
-        render_vendors(db, policy, auth["role"])
-    with tab_assistant:
-        render_assistant(db, config, policy)
-
-
-if __name__ == "__main__":
-    main()
