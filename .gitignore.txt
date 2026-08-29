@@ -1,0 +1,18 @@
+# Local System Security Barrier Configurations
+.env
+*.db
+chroma_db/
+policies/
+temp_uploaded_products.csv
+
+# Core Python System Cache Discard Rules
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# User Interface Operating System Logs
+.streamlit/
+.DS_Store
+Thumbs.db
