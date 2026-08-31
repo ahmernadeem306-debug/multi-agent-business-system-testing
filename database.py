@@ -1,6 +1,6 @@
 """
 database.py
-============
+===========
 Production-ready, data-isolated SQLite database layer for BizAgent.
 Includes secure SHA-256 salted password hashing engine with zero dummy configurations.
 """
@@ -238,8 +238,8 @@ class DatabaseManager:
             return False
 
     # ---- Dynamic File Ingestion Logic Controllers ----
-    # ---- Dynamic File Ingestion Logic Controllers ----
 
+    def seed_from_csv(self, csv_filepath: Path) -> None:
     def seed_from_csv(self, csv_filepath: Path) -> None:
         """Reads operational stock rows completely dynamically from a custom runtime file configuration."""
         if not csv_filepath.exists():
@@ -260,9 +260,10 @@ class DatabaseManager:
                         int(row['stock_level']), int(row['minimum_required_stock']),
                         float(row['wholesale_price']), float(row['retail_price'])
                     ))
-                cur.execute("SELECT COUNT(*) FROM products;")
-                # Note: Yahan cur.fetchone()[0] lagaya hai taake tuple error na aaye
-                logger.info("CSV Pipeline complete. Live verifiable row registry count: %d", cur.fetchone()[0])
+                cur.execute("SELECT COUNT(*) as total FROM products;")
+                res = cur.fetchone()
+                count = res["total"] if res else 0
+                logger.info("CSV Pipeline complete. Live verifiable row registry count: %d", count)
 
 
 # --------------------------------------------------------------------------- 
@@ -273,6 +274,7 @@ if __name__ == "__main__":
     db = DatabaseManager()
     db.initialize()
     print("Database built successfully inside 'supermart_ops.db'.")
+
 
 
 
