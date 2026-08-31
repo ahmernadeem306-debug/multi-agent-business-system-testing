@@ -10,7 +10,8 @@ from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import START, END, StateGraph
 from langgraph.graph.message import add_messages
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
+
 
 # 1. State Definition
 class AgentState(TypedDict):
