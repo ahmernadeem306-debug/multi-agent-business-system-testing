@@ -6,4 +6,7 @@ chromadb
 pypdf
 python-dotenv
 langchain-anthropic
+langchain-mcp-adapters
+mcp
+
 
