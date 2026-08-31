@@ -19,9 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional
 
-# --------------------------------------------------------------------------- 
-# Configuration
-# --------------------------------------------------------------------------- 
 DB_FILENAME = "supermart_ops.db"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / DB_FILENAME
@@ -33,20 +30,15 @@ logging.basicConfig(
 logger = logging.getLogger("supermart.database")
 
 
-# --------------------------------------------------------------------------- 
-# Cryptographic Password Hashing Engine (No Hardcoded Credentials)
-# --------------------------------------------------------------------------- 
 class SecurityEngine:
     @staticmethod
     def hash_password(plaintext_password: str) -> str:
-        """Generates a secure SHA-256 hash combined with a randomized unique 16-byte salt."""
         salt = os.urandom(16)
         password_hash = hashlib.sha256(salt + plaintext_password.encode('utf-8')).hexdigest()
         return f"{salt.hex()}:{password_hash}"
 
     @staticmethod
     def verify_password(plaintext_password: str, stored_credential_string: str) -> bool:
-        """Extracts salt registers dynamically and matches hash outputs securely."""
         try:
             salt_hex, original_hash = stored_credential_string.split(":")
             salt = bytes.fromhex(salt_hex)
@@ -56,9 +48,6 @@ class SecurityEngine:
             return False
 
 
-# --------------------------------------------------------------------------- 
-# Connection Pool
-# --------------------------------------------------------------------------- 
 class ConnectionPool:
     def __init__(self, db_path: Path, pool_size: int = 5, timeout: float = 30.0):
         self._db_path = db_path
@@ -109,9 +98,6 @@ class ConnectionPool:
             logger.info("All pooled connections closed.")
 
 
-# --------------------------------------------------------------------------- 
-# Database Manager Facade
-# --------------------------------------------------------------------------- 
 @dataclass
 class DatabaseManager:
     db_path: Path = DB_PATH
@@ -144,9 +130,7 @@ class DatabaseManager:
                 cursor.close()
 
     def initialize(self) -> None:
-        """Creates secure structural database tables and optimizations schema blocks."""
         with self.get_cursor() as cur:
-            # 1. Permanent Hashed Users Security Access Registry
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,7 +140,6 @@ class DatabaseManager:
                 );
             """)
 
-            # 2. Products Table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     sku                     TEXT PRIMARY KEY,
@@ -172,7 +155,6 @@ class DatabaseManager:
                 );
             """)
 
-            # 3. Vendor Contracts Table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS vendor_contracts (
                     vendor_id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,7 +165,6 @@ class DatabaseManager:
                 );
             """)
 
-            # 4. Sales Transactions Table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS sales_transactions (
                     transaction_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,17 +176,13 @@ class DatabaseManager:
                 );
             """)
 
-            # 5. Multi-Year High Performance Optimization Indexes
             cur.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON sales_transactions(timestamp);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_sku ON sales_transactions(sku);")
             
             logger.info("All secure enterprise tables and analytical database indexes initialized successfully.")
 
-    # ---- User Authentication Logic Controllers ----
-
     def register_user(self, username: str, plaintext_password: str) -> bool:
-        """Safely encrypts and signs up a new store manager directly into storage registers."""
         hashed_value = SecurityEngine.hash_password(plaintext_password)
         try:
             with self.get_cursor() as cur:
@@ -220,7 +197,6 @@ class DatabaseManager:
             return False
 
     def verify_user_credentials(self, username: str, plaintext_password: str) -> bool:
-        """Verifies passwords securely by comparing cryptographic string digests."""
         try:
             with self.get_cursor() as cur:
                 cur.execute(
@@ -237,11 +213,7 @@ class DatabaseManager:
             logger.error("Authentication layer exception encountered: %s", str(e))
             return False
 
-    # ---- Dynamic File Ingestion Logic Controllers ----
-
     def seed_from_csv(self, csv_filepath: Path) -> None:
-    def seed_from_csv(self, csv_filepath: Path) -> None:
-        """Reads operational stock rows completely dynamically from a custom runtime file configuration."""
         if not csv_filepath.exists():
             logger.warning("Ingestion Failed: Target CSV resource '%s' does not exist.", csv_filepath.name)
             return
@@ -266,16 +238,9 @@ class DatabaseManager:
                 logger.info("CSV Pipeline complete. Live verifiable row registry count: %d", count)
 
 
-# --------------------------------------------------------------------------- 
-# Clean Isolated System Initialization
-# --------------------------------------------------------------------------- 
 if __name__ == "__main__":
     print("Initializing Clean Database Layers...")
     db = DatabaseManager()
     db.initialize()
     print("Database built successfully inside 'supermart_ops.db'.")
-
-
-
-
 
