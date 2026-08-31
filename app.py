@@ -21,6 +21,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- FIX: App start hote hi background mein tables verification trigger ---
+db_boot = DatabaseManager()
+db_boot.initialize()
+
 POLICIES_DIR = BASE_DIR / "policies"
 POLICIES_DIR.mkdir(exist_ok=True)
 
@@ -43,11 +47,12 @@ def fetch_live_dashboard_stats():
             row_total = cur.fetchone()
             total_p = row_total["total"] if row_total else 0
             
-            cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level < 10;")
+            cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level < minimum_required_stock;")
             row_low = cur.fetchone()
             critical_low = row_low["low_count"] if row_low else 0
             
-            cur.execute("SELECT COUNT(*) as sales_count FROM sales;")
+            # FIX: Database schema ke mutabik table ka naam 'sales_transactions' kiya hai
+            cur.execute("SELECT COUNT(*) as sales_count FROM sales_transactions;")
             row_sales = cur.fetchone()
             total_sales = row_sales["sales_count"] if row_sales else 0
             
@@ -56,7 +61,7 @@ def fetch_live_dashboard_stats():
         return 0, 0, 0
 
 # --------------------------------------------------------------------------- 
-# Security Portal Rendering (Fixed Missing Code Segment)
+# Security Portal Rendering
 # --------------------------------------------------------------------------- 
 def render_security_portal():
     st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
@@ -85,11 +90,11 @@ def render_security_portal():
                 else:
                     st.warning("⚠️ Please fill in all credentials fields.")
                     
-        # 2. Login Code Control Panel
+        # 2. Login Code Control Panel (FIX: Label changed from 'Secure Access Key' to 'Password')
         with login_tab:
             st.subheader("Authorized Operator Entry")
             login_user = st.text_input("Operator Username", key="log_user")
-            login_pass = st.text_input("Secure Access Key", type="password", key="log_pass")
+            login_pass = st.text_input("Password", type="password", key="log_pass")
             login_btn = st.button("Verify Identity Key")
             
             if login_btn:
@@ -175,6 +180,7 @@ else:
                     st.session_state["chat_history"].append(AIMessage(content=final_reply))
                 except Exception as error:
                     st.error(f"System Workflow Exception: {str(error)}")
+
 
 
 
