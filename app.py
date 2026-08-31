@@ -17,8 +17,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-db_boot = DatabaseManager()
-db_boot.initialize()
+# --- FIX: Database instance ko state cache mein handle karne ke liye ---
+@st.cache_resource
+def get_db_instance():
+    db = DatabaseManager()
+    db.initialize()
+    return db
+
+db_global = get_db_instance()
+# ----------------------------------------------------------------------
 
 POLICIES_DIR = BASE_DIR / "policies"
 POLICIES_DIR.mkdir(exist_ok=True)
@@ -31,10 +38,7 @@ if "chat_history" not in st.session_state:
 
 def fetch_live_dashboard_stats():
     try:
-        db = DatabaseManager()
-        db.initialize()
-        
-        with db.get_cursor() as cur:
+        with db_global.get_cursor() as cur:
             cur.execute("SELECT COUNT(*) as total FROM products;")
             row_total = cur.fetchone()
             total_p = row_total["total"] if row_total else 0
@@ -59,7 +63,6 @@ def render_security_portal():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         login_tab, signup_tab = st.tabs(["🔑 Login Area", "📝 Create Manager Account"])
-        db = DatabaseManager()
         
         with signup_tab:
             st.subheader("Register New Store Account")
@@ -69,7 +72,8 @@ def render_security_portal():
             
             if signup_btn:
                 if new_user and new_pass:
-                    success = db.register_user(new_user, new_pass)
+                    # Global single instance use ho raha hai
+                    success = db_global.register_user(new_user, new_pass)
                     if success:
                         st.success("✅ Account registered permanently! Now go to the Login Area to access the board.")
                     else:
@@ -84,7 +88,8 @@ def render_security_portal():
             login_btn = st.button("Verify Identity Key")
             
             if login_btn:
-                is_valid = db.verify_user_credentials(login_user, login_pass)
+                # Same shared instance read karega
+                is_valid = db_global.verify_user_credentials(login_user, login_pass)
                 if is_valid:
                     st.session_state["authenticated"] = True
                     st.success("Access Granted. Initializing console...")
@@ -107,9 +112,7 @@ else:
         with open(temp_csv, "wb") as f:
             f.write(uploaded_csv.getbuffer())
         try:
-            db = DatabaseManager()
-            db.initialize()
-            db.seed_from_csv(temp_csv)
+            db_global.seed_from_csv(temp_csv)
             st.sidebar.success("✅ Inventory Database Synchronized!")
             os.remove(temp_csv)
         except Exception as e:
@@ -159,6 +162,7 @@ else:
                     st.session_state["chat_history"].append(AIMessage(content=final_reply))
                 except Exception as error:
                     st.error(f"System Workflow Exception: {str(error)}")
+
 
 
 
