@@ -1,10 +1,16 @@
 import streamlit as st
 import os
+import sys
 from pathlib import Path
 from langchain_core.messages import HumanMessage, AIMessage
 
+# --- FIX: Streamlit Cloud ko root folder dhoondne mein madad karne ke liye ---
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.append(str(BASE_DIR))
+
 # Direct imports from your existing modular files
 from database import DatabaseManager
+# FIX: Agar agents.py ek file hai, to direct file se import hoga
 from agents import graph_pipeline
 
 # Configure Page Layout
@@ -15,23 +21,45 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-BASE_DIR = Path(__file__).resolve().parent
 POLICIES_DIR = BASE_DIR / "policies"
 POLICIES_DIR.mkdir(exist_ok=True)
 
+# Session state initialization
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+
 # --------------------------------------------------------------------------- 
-# Live Dashboard Statistics Tracker (Cleaned - Removed Try/Except Dependency)
+# Live Dashboard Statistics Tracker
 # --------------------------------------------------------------------------- 
 def fetch_live_dashboard_stats():
-    db = DatabaseManager()
-    db.initialize()
-    
-    with db.get_cursor() as cur:
-        cur.execute("SELECT COUNT(*) as total FROM products;")
-        row_total = cur.fetchone()
-        total_p = row_total["total"] if row_total else 0
+    try:
+        db = DatabaseManager()
+        db.initialize()
         
-        cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level 🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
+        with db.get_cursor() as cur:
+            cur.execute("SELECT COUNT(*) as total FROM products;")
+            row_total = cur.fetchone()
+            total_p = row_total["total"] if row_total else 0
+            
+            cur.execute("SELECT COUNT(*) as low_count FROM products WHERE stock_level < 10;")
+            row_low = cur.fetchone()
+            critical_low = row_low["low_count"] if row_low else 0
+            
+            cur.execute("SELECT COUNT(*) as sales_count FROM sales;")
+            row_sales = cur.fetchone()
+            total_sales = row_sales["sales_count"] if row_sales else 0
+            
+            return total_p, critical_low, total_sales
+    except Exception:
+        return 0, 0, 0
+
+# --------------------------------------------------------------------------- 
+# Security Portal Rendering (Fixed Missing Code Segment)
+# --------------------------------------------------------------------------- 
+def render_security_portal():
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>🏪 BizAgent AI Supermart Assistant</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280;'>Secure Manager Identity Terminal Gateway</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -147,5 +175,6 @@ else:
                     st.session_state["chat_history"].append(AIMessage(content=final_reply))
                 except Exception as error:
                     st.error(f"System Workflow Exception: {str(error)}")
+
 
 
